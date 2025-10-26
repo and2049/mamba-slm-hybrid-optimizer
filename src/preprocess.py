@@ -14,7 +14,20 @@ OUTPUT_DIR = "data"
 OUTPUT_TRAIN_FILE = os.path.join(OUTPUT_DIR, "train.bin")
 OUTPUT_VAL_FILE = os.path.join(OUTPUT_DIR, "val.bin")
 
+dtype = np.uint16
+
 def process_and_save(split_name, output_file):
+    if os.path.exists(output_file):
+        print(f"Output file {output_file} already exists. Skipping preprocessing for {split_name}.")
+        # try to load the existing file to get its size for confirmation
+        try:
+            existing_memmap = np.memmap(output_file, dtype=dtype, mode='r')
+            final_size = existing_memmap.shape[0]
+            print(f"  Existing file size: {final_size:,} tokens ({final_size / 1e6:.2f}M)")
+            del existing_memmap  # Close the file handle
+        except Exception as e:
+            print(f"  Warning: Could not read existing file size: {e}")
+        return  # skip the rest of the function for this split
     print(f'Loading tokenizer: {TOKENIZER_NAME}')
     tokenizer = AutoTokenizer.from_pretrained(TOKENIZER_NAME)
     if tokenizer.pad_token is None:
@@ -41,7 +54,6 @@ def process_and_save(split_name, output_file):
     else:
         raise ValueError(f"Unknown split name: {split_name}")
 
-    dtype = np.uint16
     temp_file = output_file + ".tmp"
     print(f"Tokenizing and writing to temp file: {temp_file}")
     pbar = tqdm(desc=f"Processing {split_name}", unit=" tokens")
@@ -98,7 +110,7 @@ def process_and_save(split_name, output_file):
     del temp_memmap
 
     # Clean up the temp file
-    os.remove(temp_file)
+    # os.remove(temp_file) # - results in WinError 32, manually delete
 
     print(f"Successfully created: {output_file}")
     print(f"Final shape: {final_size} tokens ({final_size / 1e6:.2f}M)")
