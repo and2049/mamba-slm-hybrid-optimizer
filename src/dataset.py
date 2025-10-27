@@ -1,4 +1,5 @@
 import torch
+from transformers import AutoTokenizer
 import numpy as np
 import os
 import src.config as config
@@ -7,7 +8,7 @@ DATA_DIR = "data"
 TRAIN_FILE = os.path.join(DATA_DIR, "train.bin")
 VAL_FILE = os.path.join(DATA_DIR, "val.bin")
 DTYPE = np.uint16 # must match dtype used in preprocess.py
-
+TOKENIZER_NAME = "gpt2"
 
 class PrecomputedDataloader:
     def __init__(self, split="train"):
