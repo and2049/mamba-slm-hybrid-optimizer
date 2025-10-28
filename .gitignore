@@ -211,3 +211,5 @@ __marimo__/
 # data
 *.bin
 *.tmp
+
+*.pdf

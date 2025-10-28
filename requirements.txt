@@ -7,4 +7,5 @@ transformers
 accelerate
 mamba-ssm
 wandb
+triton
 
