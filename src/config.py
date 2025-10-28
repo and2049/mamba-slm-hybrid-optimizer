@@ -10,8 +10,8 @@ pad_vocab_size_multiple = 8
 
 
 # training config
-limit_train_batches = None  # (e.g., 100 for a smoke test)
-limit_val_batches = None    # (e.g., 20 for a smoke test)
+limit_train_batches = 100  # (e.g., 100 for a smoke test)
+limit_val_batches = 20    # (e.g., 20 for a smoke test)
 
 max_seq_len = 1024
 learning_rate_muon = 1e-3   # Muon's LR is typically higher

@@ -52,19 +52,7 @@ class PrecomputedDataloader:
 
                 # get sequence chunk from the memory-mapped file
                 x = torch.from_numpy(self.memmap[start:end].astype(np.int64))
-                start_x = seq_idx * config.max_seq_len
-                end_x = start_x + config.max_seq_len
-
-                # randomly pick a starting point in the file
-                idx = torch.randint(len(self.memmap) - config.max_seq_len, (1,)).item()
-
-                # read max_seq_len + 1 tokens from that point
-                chunk = torch.from_numpy(
-                    self.memmap[idx: idx + config.max_seq_len + 1].astype(np.int64)
-                )
-
-                x = chunk[:-1]  # The first L tokens
-                y = chunk[1:]  # The last L tokens (shifted)
+                y = torch.roll(x, -1, dims=0)  # labels for next token prediction
 
                 batch_x.append(x)
                 batch_y.append(y)

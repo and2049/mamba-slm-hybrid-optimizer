@@ -213,3 +213,5 @@ __marimo__/
 *.tmp
 
 *.pdf
+
+.venv-wsl/

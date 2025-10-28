@@ -50,4 +50,4 @@ def create_hybrid_optimizer(model):
     print(f"Created Muon optimizer for {len(muon_params)} parameter groups.")
     print(f"Created AdamW optimizer for {len(adam_params)} parameter groups.")
 
-    #return [optimizer_muon, optimizer_adamw]
+    return optimizer_muon, optimizer_adamw
