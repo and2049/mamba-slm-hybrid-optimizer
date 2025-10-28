@@ -1,7 +1,10 @@
 --extra-index-url https://download.pytorch.org/whl/cu128
-torch==2.8.0+cu128
-torchvision==0.23.0+cu128
+torch==2.9.0+cu128
+torchvision==0.24.0+cu128
 
 datasets
 transformers
+accelerate
+mamba-ssm
+wandb
 

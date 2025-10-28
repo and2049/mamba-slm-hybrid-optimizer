@@ -1,5 +1,7 @@
 import torch
 
+wandb_project_name = 'mamba-slm-hybrid-optimizer'
+
 # model config
 d_model = 768
 n_layer = 24

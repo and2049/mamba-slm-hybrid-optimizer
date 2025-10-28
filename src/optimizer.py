@@ -1,6 +1,6 @@
 import torch.optim as optim
 import src.config as config
-from muon_optimizer import Muon
+from src.muon_optimizer import Muon
 
 
 def create_hybrid_optimizer(model):
