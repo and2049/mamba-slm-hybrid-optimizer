@@ -4,6 +4,7 @@ import wandb
 import time
 from contextlib import nullcontext
 import math
+import torch.nn.functional as F
 
 import src.config as config
 from src.model import create_mamba_model
@@ -23,8 +24,26 @@ def get_lr(it):
 
 
 def train():
+    hyperparameters = {
+        "d_model": config.d_model,
+        "n_layer": config.n_layer,
+        "vocab_size": config.vocab_size,
+        "pad_vocab_size_multiple": config.pad_vocab_size_multiple,
+        "max_seq_len": config.max_seq_len,
+        "learning_rate_muon": config.learning_rate_muon,
+        "learning_rate_adamw": config.learning_rate_adamw,
+        "weight_decay": config.weight_decay,
+        "batch_size_effective": config.micro_batch_size * config.gradient_accumulation_steps,
+        "micro_batch_size": config.micro_batch_size,
+        "gradient_accumulation_steps": config.gradient_accumulation_steps,
+        "max_steps": config.max_steps,
+        "warmup_steps": config.warmup_steps,
+        "dtype": config.dtype,
+        "dataset": config.dataset_name,
+        "data_files_train": config.data_files_pattern_train,
+    }
 
-    wandb.init(project=config.wandb_project_name, config=vars(config))
+    wandb.init(project=config.wandb_project_name, config=hyperparameters)
 
     torch.manual_seed(8647)
     torch.cuda.manual_seed(8647)
@@ -86,9 +105,16 @@ def train():
             labels = labels.to(config.device, non_blocking=True)
 
             with ctx:
-                outputs = model(input_ids, labels=labels)
-                loss = outputs.loss.mean() if outputs.loss.ndim > 0 else outputs.loss
-                loss = loss / config.gradient_accumulation_steps
+                logits = model(input_ids).logits
+
+                B, L, V = logits.shape
+
+                logits_for_loss = logits.view(B * L, V)
+                labels_for_loss = labels.view(B * L)
+
+                loss = F.cross_entropy(logits_for_loss, labels_for_loss, ignore_index=-100)
+
+            loss = loss / config.gradient_accumulation_steps
 
             scaler.scale(loss).backward()
             accumulated_loss += loss.item()
@@ -103,11 +129,9 @@ def train():
         # Clip gradients *after* unscaling, *before* optimizer.step()
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
 
-        # Step both optimizers using scaled gradients
         scaler.step(optimizers[0])
         scaler.step(optimizers[1])
 
-        # Update the scaler for next iteration
         scaler.update()
 
         if current_step % config.log_interval == 0:
@@ -157,8 +181,14 @@ def run_validation(model, val_data_iter, ctx, train_step):
         labels = labels.to(config.device, non_blocking=True)
 
         with ctx:
-            outputs = model(input_ids, labels=labels)
-            loss = outputs.loss.mean() if outputs.loss.ndim > 0 else outputs.loss
+            logits = model(input_ids).logits
+
+            B, L, V = logits.shape
+            logits_for_loss = logits.view(B * L, V)
+            labels_for_loss = labels.view(B * L)
+
+            loss = F.cross_entropy(logits_for_loss, labels_for_loss, ignore_index=-100)
+
             total_val_loss += loss.item()
 
         val_steps += 1
