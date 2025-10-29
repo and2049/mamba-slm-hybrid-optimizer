@@ -2,9 +2,16 @@ import torch
 from transformers import AutoTokenizer
 import numpy as np
 import os
-import src.config as config
 
-DATA_DIR = "data"
+try:
+    import src.config as config
+except ImportError:
+    import config
+
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PROJECT_ROOT = os.path.dirname(SCRIPT_DIR)
+DATA_DIR = os.path.join(PROJECT_ROOT, "data")
+
 TRAIN_FILE = os.path.join(DATA_DIR, "train.bin")
 VAL_FILE = os.path.join(DATA_DIR, "val.bin")
 DTYPE = np.uint16 # must match dtype used in preprocess.py

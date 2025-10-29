@@ -1,14 +1,11 @@
-# src/model.py
-
 from mamba_ssm import MambaLMHeadModel
 from mamba_ssm.models.config_mamba import MambaConfig
-import math # Added for vocab padding calculation
+import math
 
-# Try importing config relative to src first, then directly if run as script
 try:
     import src.config as config
 except ImportError:
-    import config # Allows running this file directly for testing
+    import config
 
 def create_mamba_model():
     """

@@ -8,9 +8,10 @@ from datasets import load_dataset, IterableDataset
 from transformers import AutoTokenizer
 from tqdm import tqdm
 
-import src.config as config
-
-
+try:
+    import src.config as config
+except ImportError:
+    import config
 
 TOKENIZER_NAME = "gpt2"
 DATASET_NAME = config.dataset_name
