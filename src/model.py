@@ -8,14 +8,6 @@ except ImportError:
     import config
 
 def create_mamba_model():
-    """
-    Creates the MambaLMHeadModel from the configuration specified in config.py.
-    Includes vocabulary padding for hardware efficiency.
-    """
-
-    # --- Vocabulary Padding ---
-    # Pad vocab_size to the nearest multiple of pad_vocab_size_multiple
-    # This optimization improves performance on certain hardware (like NVIDIA Tensor Cores)
     padded_vocab_size = config.vocab_size
     if config.pad_vocab_size_multiple > 1:
         padded_vocab_size = (
@@ -32,7 +24,6 @@ def create_mamba_model():
     print(f"  vocab_size (original): {config.vocab_size}")
     print(f"  vocab_size (padded): {padded_vocab_size}")
 
-    # --- Create Mamba Configuration ---
     mamba_config = MambaConfig(
         d_model=config.d_model,
         n_layer=config.n_layer,
@@ -44,12 +35,10 @@ def create_mamba_model():
         # residual_in_fp32=True,
     )
 
-    # --- Instantiate the Model ---
-    # MambaLMHeadModel includes the language model head for next-token prediction
     print("Instantiating MambaLMHeadModel...")
     model = MambaLMHeadModel(mamba_config)
 
-    # --- Print Parameter Count ---
+
     params_total = sum(p.numel() for p in model.parameters())
     params_trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
     print(f"  Total Parameters: {params_total/1e6:.2f}M")
@@ -57,9 +46,6 @@ def create_mamba_model():
 
     return model
 
-# --- Simple Test ---
-# This allows you to run `python src/model.py` to quickly check
-# if the model creation works without running the full training.
 if __name__ == "__main__":
     print("Running model creation test...")
     try:
