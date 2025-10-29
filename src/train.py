@@ -5,6 +5,7 @@ import time
 from contextlib import nullcontext
 import math
 import torch.nn.functional as F
+import os
 
 import src.config as config
 from src.model import create_mamba_model
@@ -43,7 +44,7 @@ def train():
         "data_files_train": config.data_files_pattern_train,
     }
 
-    wandb.init(project=config.wandb_project_name, config=hyperparameters)
+    wandb.init(project=config.wandb_project_name, config=hyperparameters, entity="mamba-slm-hybrid-optimizer")
 
     torch.manual_seed(8647)
     torch.cuda.manual_seed(8647)
