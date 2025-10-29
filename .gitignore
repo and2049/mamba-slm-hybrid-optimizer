@@ -215,3 +215,5 @@ __marimo__/
 *.pdf
 
 .venv-wsl/
+.venv/
+wandb/
