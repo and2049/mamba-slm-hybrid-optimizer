@@ -74,7 +74,7 @@ pip install -r requirements.txt
 Download and preprocess the FineWeb dataset. This creates binary files in the data directory.
 
 ```python
-python src/preprocess.py
+python -m src.preprocess
 ```
 
 This step converts raw text data into tokenized sequences suitable for efficient training.
@@ -83,7 +83,7 @@ This step converts raw text data into tokenized sequences suitable for efficient
 Start the training process. The script handles hybrid optimization and logs progress.
 
 ```python
-python src/train.py
+python -m src.train
 ```
 
 Training includes:
