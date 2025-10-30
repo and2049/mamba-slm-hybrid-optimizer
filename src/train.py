@@ -205,12 +205,12 @@ def train():
             wandb.log({
                 "train/loss": accumulated_loss,
                 "train/step": current_step,
-                "train/epoch": current_epoch,
+                # "train/epoch": current_epoch,
                 "train/lr_muon": current_lr_muon,
                 "train/lr_adamw": current_lr_adamw,
                 "system/time_seconds": elapsed_time,
                 "system/tokens_processed": tokens_processed
-            })
+            }, step=current_step)
 
         current_step += 1
 
@@ -272,8 +272,8 @@ def run_validation(model, val_data_iter, ctx, train_step):
     wandb.log({
         "val/loss": avg_val_loss,
         "val/perplexity": perplexity,
-        "train/step": train_step
-    })
+        # "train/step": train_step
+    }, step=train_step)
 
     model.train() # IMPORTANT: Set model back to training mode
     return avg_val_loss

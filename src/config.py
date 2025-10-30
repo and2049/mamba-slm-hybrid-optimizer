@@ -23,8 +23,8 @@ micro_batch_size = 1
 tokens_per_step = max_seq_len * micro_batch_size * gradient_accumulation_steps
 
 # --- Training Duration ---
-# Option 1: Train by steps (default)
-train_by_epochs = False   # Set to True to train by epochs instead of steps
+train_by_epochs = True   # Set to True to train by epochs instead of steps
+# Option 1: Train by steps
 max_steps = 10000         # Total training steps (e.g., 5000 for a test run)
 warmup_steps = 100        # Linear warmup steps
 
