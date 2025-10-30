@@ -8,7 +8,6 @@ n_layer = 24
 vocab_size = 50277  # Vocabulary size (GPT-2 tokenizer)
 pad_vocab_size_multiple = 8
 
-
 # training config
 limit_train_batches = None  # (e.g., 100 for a smoke test)
 limit_val_batches = None    # (e.g., 20 for a smoke test)
@@ -21,9 +20,22 @@ weight_decay = 0.01
 gradient_accumulation_steps = 32  # increase if less vram
 micro_batch_size = 1
 
-# training duration
+tokens_per_step = max_seq_len * micro_batch_size * gradient_accumulation_steps
+
+# --- Training Duration ---
+# Option 1: Train by steps (default)
+train_by_epochs = False   # Set to True to train by epochs instead of steps
 max_steps = 10000         # Total training steps (e.g., 5000 for a test run)
 warmup_steps = 100        # Linear warmup steps
+
+# Option 2: Train by epochs (overrides max_steps and warmup_steps)
+total_train_tokens = 10_000_000_000
+
+num_epochs = 1            # Total number of epochs to train for
+if total_train_tokens and tokens_per_step > 0:
+    steps_per_epoch = total_train_tokens // tokens_per_step
+else:
+    steps_per_epoch = None
 
 # logging
 log_interval = 10         # Log training loss every N steps
@@ -40,3 +52,5 @@ data_files_pattern_val = None\
 dataset_split_train = "train"
 dataset_split_val = "validation"
 streaming = True # set to True to handle 32GB RAM limit
+
+output_dir = "checkpoints"

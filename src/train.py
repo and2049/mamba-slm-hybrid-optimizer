@@ -13,18 +13,55 @@ from src.dataset import get_tokenizer, get_dataloader # Updated dataset function
 from src.optimizer import create_hybrid_optimizer # Creates the list [Muon, AdamW]
 from src.muon_optimizer import Muon
 
-def get_lr(it):
-    if it < config.warmup_steps:
-        return config.learning_rate_adamw * (it / config.warmup_steps) # Use AdamW LR for scaling during warmup
-    if it > config.max_steps: # assuming we decay until the end
-        return config.learning_rate_adamw / 10 # min_lr = lr/10
-    decay_ratio = (it - config.warmup_steps) / (config.max_steps - config.warmup_steps)
+def get_lr(it, max_steps, warmup_steps):
+    min_lr_factor = config.learning_rate_adamw / 10 / config.learning_rate_adamw
+    max_lr_factor = 1.0
+
+    if it < warmup_steps:
+        return max_lr_factor * (it / warmup_steps)  # Factor scales from 0.0 -> 1.0
+
+    if it > max_steps:
+        return min_lr_factor  # Factor stays at 0.1
+
+    decay_ratio = (it - warmup_steps) / (max_steps - warmup_steps)
     assert 0 <= decay_ratio <= 1
-    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))
-    return (config.learning_rate_adamw / 10 + coeff * (config.learning_rate_adamw - config.learning_rate_adamw / 10)) / config.learning_rate_adamw
+    coeff = 0.5 * (1.0 + math.cos(math.pi * decay_ratio))  # coeff goes from 1.0 -> 0.0
+    return min_lr_factor + coeff * (max_lr_factor - min_lr_factor)
 
 
 def train():
+    max_steps = config.max_steps
+    warmup_steps = config.warmup_steps
+
+    if config.train_by_epochs:
+        if not config.steps_per_epoch:
+            raise ValueError(
+                "config.steps_per_epoch must be set when config.train_by_epochs is True."
+            )
+
+        # Override max_steps and warmup_steps based on epochs
+        original_max_steps = max_steps
+        max_steps = config.num_epochs * config.steps_per_epoch
+
+        # Optional: Scale warmup steps proportionally
+        if original_max_steps > 0:  # Avoid division by zero
+            warmup_ratio = warmup_steps / original_max_steps
+        else:
+            # Fallback: Warm up for 1% of total steps if original_max_steps was 0
+            warmup_ratio = 0.01
+
+        warmup_steps = int(max_steps * warmup_ratio)
+
+        print(f"--- Training Mode: EPOCHS ---")
+        print(f"  Target Epochs:       {config.num_epochs}")
+        print(f"  Steps per Epoch:     {config.steps_per_epoch}")
+        print(f"  Calculated max_steps:  {max_steps}")
+        print(f"  Calculated warmup_steps: {warmup_steps}")
+    else:
+        print(f"--- Training Mode: STEPS ---")
+        print(f"  Target max_steps:  {max_steps}")
+        print(f"  Warmup steps: {warmup_steps}")
+
     hyperparameters = {
         "d_model": config.d_model,
         "n_layer": config.n_layer,
@@ -37,14 +74,22 @@ def train():
         "batch_size_effective": config.micro_batch_size * config.gradient_accumulation_steps,
         "micro_batch_size": config.micro_batch_size,
         "gradient_accumulation_steps": config.gradient_accumulation_steps,
-        "max_steps": config.max_steps,
-        "warmup_steps": config.warmup_steps,
+
+        "max_steps": max_steps,
+        "warmup_steps": warmup_steps,
+
         "dtype": config.dtype,
         "dataset": config.dataset_name,
         "data_files_train": config.data_files_pattern_train,
+
+        "train_by_epochs": config.train_by_epochs,
+        "num_epochs": config.num_epochs if config.train_by_epochs else None,
+        "steps_per_epoch": config.steps_per_epoch if config.train_by_epochs else None,
     }
 
     wandb.init(project=config.wandb_project_name, config=hyperparameters, entity="mamba-slm-hybrid-optimizer")
+
+    os.makedirs(config.output_dir, exist_ok=True)
 
     torch.manual_seed(8647)
     torch.cuda.manual_seed(8647)
@@ -55,7 +100,6 @@ def train():
     pt_dtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[config.dtype]
     ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=pt_dtype)
 
-    # VRAM Fallback: Gradient Scaler for mixed precision (float16)
     scaler = torch.cuda.amp.GradScaler(enabled=(config.dtype == 'float16'))
 
     print("Loading tokenizer and creating data iterators...")
@@ -70,25 +114,46 @@ def train():
     print("Model created.")
 
     print("Creating hybrid optimizer...")
-    optimizers = create_hybrid_optimizer(model) # returns [optimizer_muon, optimizer_adamw]
+    optimizers = create_hybrid_optimizer(model)
     print("Optimizer created.")
+
+    best_val_loss = float('inf')
 
     print("--- Starting Training ---")
     start_time = time.time()
     current_step = 0
+    current_epoch = 0
 
-    while current_step < config.max_steps:
+    while current_step < max_steps:
 
-        lr_factor = get_lr(current_step) if config.warmup_steps > 0 else 1.0
+        lr_factor = get_lr(current_step, max_steps, warmup_steps) if warmup_steps > 0 else 1.0
+
         for opt in optimizers:
             base_lr = config.learning_rate_muon if isinstance(opt, Muon) else config.learning_rate_adamw
             for param_group in opt.param_groups:
-                 param_group['lr'] = base_lr * lr_factor
+                param_group['lr'] = base_lr * lr_factor
 
         if current_step % config.eval_interval == 0 and current_step > 0:
-            run_validation(model, val_data_iter, ctx, current_step)
+            avg_val_loss = run_validation(model, val_data_iter, ctx, current_step)
             val_data_iter = get_dataloader(split="validation")
 
+            if avg_val_loss < best_val_loss:
+                best_val_loss = avg_val_loss
+                print(f"  New best val loss: {best_val_loss:.4f}. Saving checkpoint...")
+
+                checkpoint = {
+                    'model': model.state_dict(),
+                    'optimizer_muon': optimizers[0].state_dict(),
+                    'optimizer_adamw': optimizers[1].state_dict(),
+                    'step': current_step,
+                    'epoch': current_epoch,  # NEW: Save the epoch
+                    'best_val_loss': best_val_loss,
+                    'config': hyperparameters
+                }
+
+                best_save_path = os.path.join(config.output_dir, "best.pt")
+                torch.save(checkpoint, best_save_path)
+                print(f"  Checkpoint saved to {best_save_path}")
 
         for opt in optimizers:
             opt.zero_grad(set_to_none=True)
@@ -98,7 +163,8 @@ def train():
             try:
                 input_ids, labels = next(train_data_iter)
             except StopIteration:
-                print("Epoch finished. Resetting training data iterator.")
+                print(f"Epoch {current_epoch} finished at step {current_step}. Resetting training data iterator.")
+                current_epoch += 1
                 train_data_iter = get_dataloader(split="train")
                 input_ids, labels = next(train_data_iter)
 
@@ -107,44 +173,39 @@ def train():
 
             with ctx:
                 logits = model(input_ids).logits
-
                 B, L, V = logits.shape
-
                 logits_for_loss = logits.view(B * L, V)
                 labels_for_loss = labels.view(B * L)
-
                 loss = F.cross_entropy(logits_for_loss, labels_for_loss, ignore_index=-100)
 
             loss = loss / config.gradient_accumulation_steps
-
             scaler.scale(loss).backward()
             accumulated_loss += loss.item()
 
-            if config.limit_train_batches and (current_step * config.gradient_accumulation_steps + micro_step + 1) >= config.limit_train_batches:
-                 break
+            if config.limit_train_batches and (
+                    current_step * config.gradient_accumulation_steps + micro_step + 1) >= config.limit_train_batches:
+                break
 
-        # --- Optimizer Step (After Accumulation) ---
-        # VRAM Fallback: Gradient Clipping (prevents NaN/inf)
-        scaler.unscale_(optimizers[0]) # Unscale Muon grads
-        scaler.unscale_(optimizers[1]) # Unscale AdamW grads
-        # Clip gradients *after* unscaling, *before* optimizer.step()
+        scaler.unscale_(optimizers[0])
+        scaler.unscale_(optimizers[1])
         torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
-
         scaler.step(optimizers[0])
         scaler.step(optimizers[1])
-
         scaler.update()
 
         if current_step % config.log_interval == 0:
             elapsed_time = time.time() - start_time
             current_lr_muon = optimizers[0].param_groups[0]['lr']
             current_lr_adamw = optimizers[1].param_groups[0]['lr']
-            tokens_processed = (current_step + 1) * config.micro_batch_size * config.gradient_accumulation_steps * config.max_seq_len
+            tokens_processed = (
+                                           current_step + 1) * config.micro_batch_size * config.gradient_accumulation_steps * config.max_seq_len
 
-            print(f"Step {current_step:5d} | Loss: {accumulated_loss:.4f} | LR Muon: {current_lr_muon:.2e} | LR AdamW: {current_lr_adamw:.2e} | Tokens: {tokens_processed/1e6:.1f}M | Time: {elapsed_time:.2f}s")
+            print(
+                f"Step {current_step:5d} | Epoch {current_epoch} | Loss: {accumulated_loss:.4f} | LR Muon: {current_lr_muon:.2e} | LR AdamW: {current_lr_adamw:.2e} | Tokens: {tokens_processed / 1e6:.1f}M | Time: {elapsed_time:.2f}s")
             wandb.log({
                 "train/loss": accumulated_loss,
                 "train/step": current_step,
+                "train/epoch": current_epoch,
                 "train/lr_muon": current_lr_muon,
                 "train/lr_adamw": current_lr_adamw,
                 "system/time_seconds": elapsed_time,
@@ -153,11 +214,12 @@ def train():
 
         current_step += 1
 
-        if config.limit_train_batches and current_step >= (config.limit_train_batches // config.gradient_accumulation_steps):
+        if config.limit_train_batches and current_step >= (
+                config.limit_train_batches // config.gradient_accumulation_steps):
             print("Reached training batch limit. Stopping.")
             break
 
-    print("--- Training Complete ---")
+    print(f"--- Training Complete (Reached step {current_step}) ---")  # MODIFIED
     wandb.finish()
 
 
@@ -176,7 +238,7 @@ def run_validation(model, val_data_iter, ctx, train_step):
             input_ids, labels = next(val_data_iter)
         except StopIteration:
             print("Validation data iterator exhausted early.")
-            break # End of validation data
+            break
 
         input_ids = input_ids.to(config.device, non_blocking=True)
         labels = labels.to(config.device, non_blocking=True)
@@ -214,6 +276,7 @@ def run_validation(model, val_data_iter, ctx, train_step):
     })
 
     model.train() # IMPORTANT: Set model back to training mode
+    return avg_val_loss
 
 
 if __name__ == "__main__":
