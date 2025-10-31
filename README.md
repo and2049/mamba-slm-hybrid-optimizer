@@ -41,7 +41,7 @@ Key hyperparameters optimized for performance:
 - **Learning Rates**: Muon at 1e-3, AdamW at 1e-4 with warmup and cosine decay
 - **Regularization**: Weight decay 0.01, gradient clipping at 1.0
 - **Mixed Precision**: bfloat16 for memory efficiency
-- **Training Duration**: 10,000 steps with linear warmup (100 steps)
+- **Training Duration**: 100,000 steps with linear warmup (100 steps) - change in config.py
 
 ## Project Structure
 ```
