@@ -53,7 +53,7 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 dtype = "bfloat16" if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else "float16"
 
 # Instruction Dataset (Alpaca)
-dataset_name = "tatsu-lab"
+dataset_name = "tatsu-lab/alpaca"
 data_files_pattern_train = None # Not needed for Alpaca
 data_files_pattern_val = None   # Not needed for Alpaca
 
