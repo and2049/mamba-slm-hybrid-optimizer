@@ -31,7 +31,7 @@ def get_lr(it, max_steps, warmup_steps):
 def get_finetune_dataloader(dataset, tokenizer, is_train=True):
 
     if is_train:
-        dataset = dataset.shuffle(buffer_size=10000, seed=42)
+        dataset = dataset.shuffle(seed=42)
 
     def format_prompt(example):
         if example.get("input", ""):
