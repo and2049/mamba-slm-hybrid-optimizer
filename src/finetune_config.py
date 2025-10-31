@@ -53,12 +53,12 @@ device = "cuda" if torch.cuda.is_available() else "cpu"
 dtype = "bfloat16" if torch.cuda.is_available() and torch.cuda.is_bf16_supported() else "float16"
 
 # Instruction Dataset (Alpaca)
-dataset_name = "HuggingFaceH4/alpaca"
+dataset_name = "tatsu-lab"
 data_files_pattern_train = None # Not needed for Alpaca
 data_files_pattern_val = None   # Not needed for Alpaca
 
 dataset_split_train = "train"
-dataset_split_val = "test" # Alpaca doesn't have a 'validation' split, use 'test'
-streaming = True
+dataset_split_val = "validation " # Alpaca doesn't have a 'validation' split, manual split
+streaming = False
 
 output_dir = "checkpoints"

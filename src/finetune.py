@@ -6,11 +6,10 @@ from contextlib import nullcontext
 import math
 import torch.nn.functional as F
 import os
-from datasets import load_dataset
-from torch.utils.data import DataLoader
+from datasets import load_dataset  # Keep this
+from torch.utils.data import DataLoader  # Keep this
 
 import src.finetune_config as config
-
 from src.model import create_mamba_model
 from src.dataset import get_tokenizer
 from src.optimizer import create_hybrid_optimizer
@@ -29,16 +28,9 @@ def get_lr(it, max_steps, warmup_steps):
     return min_lr_factor + coeff * (max_lr_factor - min_lr_factor)
 
 
-def get_finetune_dataloader(split, tokenizer):
-    print(f"Loading '{config.dataset_name}' dataset (split: {split}, streaming: {config.streaming})...")
+def get_finetune_dataloader(dataset, tokenizer, is_train=True):
 
-    dataset = load_dataset(
-        config.dataset_name,
-        split=split,
-        streaming=config.streaming
-    )
-
-    if split == config.dataset_split_train:
+    if is_train:
         dataset = dataset.shuffle(buffer_size=10000, seed=42)
 
     def format_prompt(example):
@@ -102,8 +94,8 @@ def get_finetune_dataloader(split, tokenizer):
 
     loader = DataLoader(
         dataset,
-        batch_size=config.micro_batch_size,  # this is our micro_batch_size
-        num_workers=0  # simpler for streaming
+        batch_size=config.micro_batch_size,
+        num_workers=0
     )
 
     while True:
@@ -116,9 +108,7 @@ def train():
 
     if config.train_by_epochs:
         if not config.steps_per_epoch:
-            raise ValueError(
-                "config.steps_per_epoch must be set when config.train_by_epochs is True."
-            )
+            raise ValueError("config.steps_per_epoch must be set when config.train_by_epochs is True.")
 
         original_max_steps = max_steps
         max_steps = config.num_epochs * config.steps_per_epoch
@@ -156,30 +146,43 @@ def train():
         "warmup_steps": warmup_steps,
         "dtype": config.dtype,
         "dataset": config.dataset_name,
-        # NEW: Log which checkpoint we started from
         "pretrained_checkpoint": config.pretrained_checkpoint_path,
     }
-
     wandb.init(project=config.wandb_project_name, config=hyperparameters, entity="mamba-slm-hybrid-optimizer")
 
     os.makedirs(config.output_dir, exist_ok=True)
-
     torch.manual_seed(8647)
     torch.cuda.manual_seed(8647)
     torch.backends.cuda.matmul.allow_tf32 = True
     torch.backends.cudnn.allow_tf32 = True
-
     device_type = 'cuda' if 'cuda' in config.device else 'cpu'
     pt_dtype = {'float32': torch.float32, 'bfloat16': torch.bfloat16, 'float16': torch.float16}[config.dtype]
     ctx = nullcontext() if device_type == 'cpu' else torch.amp.autocast(device_type=device_type, dtype=pt_dtype)
-
     scaler = torch.cuda.amp.GradScaler(enabled=(config.dtype == 'float16'))
 
     print("Loading tokenizer...")
     tokenizer = get_tokenizer()
+
+    print(f"Loading '{config.dataset_name}' dataset (streaming={config.streaming})...")
+    if config.streaming:
+        print("Warning: Alpaca dataset is small. Recommend setting streaming = False in config.")
+
+    full_dataset = load_dataset(config.dataset_name, streaming=config.streaming)
+
+    if config.streaming:
+        print("Streaming mode: Creating makeshift train/val splits...")
+        train_dataset = full_dataset['train'].take(1000)
+        val_dataset = full_dataset['train'].take(100)
+    else:
+        print("Splitting dataset into train and validation...")
+        # Split the 'train' split into 95% train / 5% validation
+        split_dataset = full_dataset['train'].train_test_split(test_size=0.05, seed=42)
+        train_dataset = split_dataset['train']
+        val_dataset = split_dataset['test']
+
     print("Creating fine-tuning data iterators...")
-    train_data_iter = get_finetune_dataloader(split=config.dataset_split_train, tokenizer=tokenizer)
-    val_data_iter = get_finetune_dataloader(split=config.dataset_split_val, tokenizer=tokenizer)
+    train_data_iter = get_finetune_dataloader(train_dataset, tokenizer, is_train=True)
+    val_data_iter = get_finetune_dataloader(val_dataset, tokenizer, is_train=False)
     print("Data iterators created.")
 
     print("Creating Mamba model...")
@@ -196,7 +199,6 @@ def train():
     model_state_dict = checkpoint['model']
     model.load_state_dict(model_state_dict, strict=True)
     print("Pre-trained weights loaded successfully.")
-    # we *do not* load optimizer states, as this is a new training phase
 
     print("Creating hybrid optimizer...")
     optimizers = create_hybrid_optimizer(model)
@@ -211,20 +213,18 @@ def train():
 
     while current_step < max_steps:
         lr_factor = get_lr(current_step, max_steps, warmup_steps) if warmup_steps > 0 else 1.0
-
         for opt in optimizers:
             base_lr = config.learning_rate_muon if isinstance(opt, Muon) else config.learning_rate_adamw
             for param_group in opt.param_groups:
                 param_group['lr'] = base_lr * lr_factor
 
         if current_step % config.eval_interval == 0 and current_step > 0:
-            avg_val_loss = run_validation(model, val_data_iter, ctx, current_step, tokenizer)
-            val_data_iter = get_finetune_dataloader(split=config.dataset_split_val, tokenizer=tokenizer)
+            avg_val_loss = run_validation(model, val_data_iter, ctx, current_step)
+            val_data_iter = get_finetune_dataloader(val_dataset, tokenizer, is_train=False)
 
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
                 print(f"  New best val loss: {best_val_loss:.4f}. Saving checkpoint...")
-
                 checkpoint = {
                     'model': model.state_dict(),
                     'optimizer_muon': optimizers[0].state_dict(),
@@ -234,7 +234,6 @@ def train():
                     'best_val_loss': best_val_loss,
                     'config': hyperparameters
                 }
-
                 best_save_path = os.path.join(config.output_dir, "finetuned.pt")
                 torch.save(checkpoint, best_save_path)
                 print(f"  Checkpoint saved to {best_save_path}")
@@ -249,7 +248,7 @@ def train():
             except StopIteration:
                 print(f"Epoch {current_epoch} finished at step {current_step}. Resetting training data iterator.")
                 current_epoch += 1
-                train_data_iter = get_finetune_dataloader(split=config.dataset_split_train, tokenizer=tokenizer)
+                train_data_iter = get_finetune_dataloader(train_dataset, tokenizer, is_train=True)
                 input_ids, labels = next(train_data_iter)
 
             input_ids = input_ids.to(config.device, non_blocking=True)
@@ -306,8 +305,9 @@ def train():
     print(f"--- Fine-Tuning Complete (Reached step {current_step}) ---")
     wandb.finish()
 
+
 @torch.no_grad()
-def run_validation(model, val_data_iter, ctx, train_step, tokenizer):
+def run_validation(model, val_data_iter, ctx, train_step):
     print(f"\nRunning validation at step {train_step}")
     model.eval()
     total_val_loss = 0.0
@@ -349,7 +349,8 @@ def run_validation(model, val_data_iter, ctx, train_step, tokenizer):
             perplexity = float('inf')
 
     val_time = time.time() - start_val_time
-    print(f"Validation complete ({val_steps} batches in {val_time:.2f}s). Avg Loss: {avg_val_loss:.4f} | Perplexity: {perplexity:.4f}")
+    print(
+        f"Validation complete ({val_steps} batches in {val_time:.2f}s). Avg Loss: {avg_val_loss:.4f} | Perplexity: {perplexity:.4f}")
     wandb.log({
         "val/loss": avg_val_loss,
         "val/perplexity": perplexity,
