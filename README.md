@@ -114,7 +114,7 @@ This step is compute-intensive and designed to run for a long time (days or week
 Once pre-training is complete, review and edit `src/finetune_config.py`.
 
   - `pretrained_checkpoint_path`: Ensure this points to your saved checkpoint (e.g., `checkpoints/best.pt`).
-  - `dataset_name`: The instruction dataset (default: `HuggingFaceH4/alpaca`).
+  - `dataset_name`: The instruction dataset (default: `tatsu-lab/alpaca`).
   - `num_epochs`: 1-3 epochs is typical for fine-tuning.
   - `total_train_tokens`: Update this to reflect the size of the *fine-tuning* dataset (e.g., \~10M for Alpaca).
   - `learning_rate_muon` & `learning_rate_adamw`: These should be much lower than in pre-training.
