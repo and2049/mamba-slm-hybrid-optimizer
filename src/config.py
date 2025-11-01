@@ -5,7 +5,7 @@ wandb_project_name = 'mamba-slm-hybrid-optimizer'
 # model config
 d_model = 768
 n_layer = 24
-vocab_size = 50277  # Vocabulary size (GPT-2 tokenizer)
+vocab_size = 50257  # Vocabulary size (GPT-2 tokenizer)
 pad_vocab_size_multiple = 8
 
 # training config
@@ -53,4 +53,13 @@ dataset_split_train = "train"
 dataset_split_val = "validation"
 streaming = True # set to True to handle 32GB RAM limit
 
+# checkpoints
 output_dir = "checkpoints"
+
+resume_from_checkpoint = False  # Set to True in your config to resume
+
+# Path for saving/loading the "latest" checkpoint for resuming
+latest_checkpoint_path = "checkpoints/latest.pt"
+
+# Path for saving the best model based on validation loss
+best_checkpoint_path = "checkpoints/best.pt"

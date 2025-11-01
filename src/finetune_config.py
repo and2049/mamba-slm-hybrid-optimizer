@@ -7,7 +7,7 @@ pretrained_checkpoint_path = "checkpoints/best.pt"
 # Model config (MUST match pre-training)
 d_model = 768
 n_layer = 24
-vocab_size = 50277
+vocab_size = 50257
 pad_vocab_size_multiple = 8
 
 max_seq_len = 1024

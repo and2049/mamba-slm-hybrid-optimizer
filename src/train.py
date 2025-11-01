@@ -114,15 +114,35 @@ def train():
     print("Model created.")
 
     print("Creating hybrid optimizer...")
+    current_step = 0
+    current_epoch = 0
     optimizers = create_hybrid_optimizer(model)
     print("Optimizer created.")
 
     best_val_loss = float('inf')
 
+    if config.resume_from_checkpoint:
+        if os.path.exists(config.latest_checkpoint_path):
+            print(f"--- Resuming from checkpoint: {config.latest_checkpoint_path} ---")
+            checkpoint = torch.load(config.latest_checkpoint_path, map_location=config.device)
+
+            model.load_state_dict(checkpoint['model'])
+            optimizers[0].load_state_dict(checkpoint['optimizer_muon'])
+            optimizers[1].load_state_dict(checkpoint['optimizer_adamw'])
+
+            current_step = checkpoint['step']
+            current_epoch = checkpoint.get('epoch', 0)  # Use .get for backward compatibility
+            best_val_loss = checkpoint['best_val_loss']
+
+            print(f"Resumed from step {current_step} (Epoch {current_epoch}) with best val loss {best_val_loss:.4f}")
+        else:
+            print(
+                f"Warning: resume_from_checkpoint is True but checkpoint not found at {config.latest_checkpoint_path}. Starting from scratch.")
+    else:
+        print("--- Starting training from scratch ---")
+
     print("--- Starting Training ---")
     start_time = time.time()
-    current_step = 0
-    current_epoch = 0
 
     while current_step < max_steps:
 
@@ -137,23 +157,28 @@ def train():
             avg_val_loss = run_validation(model, val_data_iter, ctx, current_step)
             val_data_iter = get_dataloader(split="validation")
 
+            checkpoint = {
+                'model': model.state_dict(),
+                'optimizer_muon': optimizers[0].state_dict(),
+                'optimizer_adamw': optimizers[1].state_dict(),
+                'step': current_step,
+                'epoch': current_epoch,
+                'best_val_loss': best_val_loss,  # Store the *current* best loss
+                'config': hyperparameters
+            }
+
             if avg_val_loss < best_val_loss:
                 best_val_loss = avg_val_loss
-                print(f"  New best val loss: {best_val_loss:.4f}. Saving checkpoint...")
+                checkpoint['best_val_loss'] = best_val_loss
+                print(f"  New best val loss: {best_val_loss:.4f}. Saving BEST checkpoint...")
 
-                checkpoint = {
-                    'model': model.state_dict(),
-                    'optimizer_muon': optimizers[0].state_dict(),
-                    'optimizer_adamw': optimizers[1].state_dict(),
-                    'step': current_step,
-                    'epoch': current_epoch,  # NEW: Save the epoch
-                    'best_val_loss': best_val_loss,
-                    'config': hyperparameters
-                }
+                torch.save(checkpoint, config.best_checkpoint_path)
+                print(f"  Best checkpoint saved to {config.best_checkpoint_path}")
 
-                best_save_path = os.path.join(config.output_dir, "best.pt")
-                torch.save(checkpoint, best_save_path)
-                print(f"  Checkpoint saved to {best_save_path}")
+            # --- ALWAYS save the "latest" checkpoint for resuming ---
+            print(f"  Saving 'latest' checkpoint for resuming...")
+            torch.save(checkpoint, config.latest_checkpoint_path)
+            print(f"  Resume checkpoint saved to {config.latest_checkpoint_path}")
 
         for opt in optimizers:
             opt.zero_grad(set_to_none=True)
@@ -205,7 +230,7 @@ def train():
             wandb.log({
                 "train/loss": accumulated_loss,
                 "train/step": current_step,
-                # "train/epoch": current_epoch,
+                "train/epoch": current_epoch,
                 "train/lr_muon": current_lr_muon,
                 "train/lr_adamw": current_lr_adamw,
                 "system/time_seconds": elapsed_time,
