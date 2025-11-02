@@ -56,7 +56,7 @@ streaming = True # set to True to handle 32GB RAM limit
 # checkpoints
 output_dir = "checkpoints"
 
-resume_from_checkpoint = False  # Set to True in your config to resume
+resume_from_checkpoint = True  # Set to True in your config to resume
 
 # Path for saving/loading the "latest" checkpoint for resuming
 latest_checkpoint_path = "checkpoints/latest.pt"
